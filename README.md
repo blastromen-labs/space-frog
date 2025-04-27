@@ -30,8 +30,8 @@ Space Frog is an engaging arcade-style game where you control a frog navigating 
 
 ## Controls
 
-- **Space** or **Click**: Jump
-- **X Key**: Shoot
+- <kbd>Space</kbd> or **Click**: Jump
+- <kbd>X</kbd>: Shoot
   - Hold for continuous shooting
   - For Charge Gun: Hold to charge, release to fire
 
