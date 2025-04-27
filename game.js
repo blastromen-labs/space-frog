@@ -5,6 +5,9 @@ class Game {
         this.canvas.width = 800;
         this.canvas.height = 600;
 
+        // Initialize Web Audio API
+        this.audioContext = null; // Will be initialized after user interaction
+
         // Sound system
         this.sounds = {
             shoot: new Audio('sounds/shoot.wav'),
@@ -19,7 +22,8 @@ class Game {
             ufoHit: new Audio('sounds/ufo_hit.wav'),
             ufoDeath: new Audio('sounds/ufo_death.wav'),
             ufoPresence: new Audio('sounds/ufo_presence.wav'),
-            charge: new Audio('sounds/charge.wav')
+            charge: new Audio('sounds/charge.wav'),
+            blob: new Audio('sounds/blob.wav')
         };
 
         // Set volume for all sounds
@@ -95,7 +99,7 @@ class Game {
             maxCharge: 100,
             chargeRate: 1,
             lastChargeSound: 0,
-            chargeSoundInterval: 100, // Reduced from 200ms to 100ms for faster sound repetition
+            chargeSoundInterval: 100,
             weapon: {
                 type: 'default',
                 ammo: 0,
@@ -128,6 +132,13 @@ class Game {
         this.ufoShootCooldown = 1000;
         this.lastUFOShot = 0;
 
+        // Tentacle Blob specific
+        this.hasBlob = false;
+        this.blobSpawnChance = 0.05; // Reduced from 0.3 to 0.05 (5% chance)
+        this.blobShootCooldown = 1500;
+        this.lastBlobShot = 0;
+        this.blobTentacleAngle = 0;
+
         // UI elements
         this.gameOverElement = document.getElementById('gameOver');
         this.finalScoreElement = document.getElementById('finalScore');
@@ -144,9 +155,11 @@ class Game {
     setupEventListeners() {
         document.addEventListener('keydown', (e) => {
             if (e.code === 'Space' && !this.gameOver) {
+                this.initializeAudioContext(); // Initialize audio on first interaction
                 this.jump();
             }
             if (e.code === 'KeyX' && !this.gameOver) {
+                this.initializeAudioContext(); // Initialize audio on first interaction
                 if (this.player.weapon.type === 'chargeGun') {
                     this.player.isCharging = true;
                 } else {
@@ -167,11 +180,13 @@ class Game {
 
         this.canvas.addEventListener('click', () => {
             if (!this.gameOver) {
+                this.initializeAudioContext(); // Initialize audio on first interaction
                 this.jump();
             }
         });
 
         this.restartButton.addEventListener('click', () => {
+            this.initializeAudioContext(); // Initialize audio on restart
             this.restart();
         });
     }
@@ -225,11 +240,18 @@ class Game {
     createEnemy() {
         const isMoving = Math.random() < 0.5;
         const isUFO = !this.hasUFO && Math.random() < this.ufoSpawnChance;
+        const isBlob = !this.hasBlob && Math.random() < this.blobSpawnChance;
 
         if (isUFO) {
             this.hasUFO = true;
             this.sounds.ufoPresence.currentTime = 0;
             this.sounds.ufoPresence.play();
+        }
+
+        if (isBlob) {
+            this.hasBlob = true;
+            this.sounds.blob.currentTime = 0;
+            this.sounds.blob.play();
         }
 
         this.enemies.push({
@@ -239,14 +261,24 @@ class Game {
             height: 40,
             isMoving: isMoving,
             isUFO: isUFO,
-            health: isUFO ? 5 : 1,
+            isBlob: isBlob,
+            health: isUFO ? 5 : (isBlob ? 8 : 1),
             moveTimer: 0,
             moveInterval: 500,
             moveDirection: {
                 x: Math.random() * 2 - 1,
                 y: Math.random() * 2 - 1
             },
-            speed: 2
+            speed: 2,
+            tentacleAngle: 0,
+            // Add blob-specific properties
+            isReturning: false,
+            leftSideTimer: 0,
+            leftSideDuration: 3000, // 3 seconds on left side
+            returnSpeed: 8, // Speed when returning to right side
+            rightSideTimer: 0,
+            rightSideDuration: 5000, // Reduced from 12000 to 5000 (5 seconds on right side)
+            isMovingToLeft: false
         });
     }
 
@@ -325,9 +357,144 @@ class Game {
                         dx: normalizedDx,
                         dy: normalizedDy
                     });
-                    this.sounds.ufoShoot.currentTime = 0;
-                    this.sounds.ufoShoot.play();
+
+                    // Generate UFO shot sound
+                    this.generateUFOShotSound();
+
                     this.lastUFOShot = currentTime;
+                }
+            } else if (enemy.isBlob) {
+                // Blob movement
+                enemy.moveTimer += deltaTime;
+
+                if (enemy.isReturning) {
+                    // Move quickly to the right
+                    enemy.x += enemy.returnSpeed;
+                    if (enemy.x > this.canvas.width - enemy.width) {
+                        enemy.x = this.canvas.width - enemy.width;
+                        enemy.isReturning = false;
+                        enemy.leftSideTimer = 0;
+                        enemy.rightSideTimer = 0;
+                        enemy.isMovingToLeft = false;
+                    }
+                } else if (enemy.isMovingToLeft) {
+                    // Normal movement when on left side
+                    if (enemy.moveTimer > enemy.moveInterval) {
+                        // Calculate direction to player
+                        const dx = this.player.x - enemy.x;
+                        const dy = this.player.y - enemy.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+
+                        // Mix player pursuit with random movement
+                        const pursuitWeight = 0.7;
+                        enemy.moveDirection.x = (dx / distance) * pursuitWeight + (Math.random() * 2 - 1) * (1 - pursuitWeight);
+                        enemy.moveDirection.y = (dy / distance) * pursuitWeight + (Math.random() * 2 - 1) * (1 - pursuitWeight);
+
+                        // Normalize the direction
+                        const newDistance = Math.sqrt(enemy.moveDirection.x * enemy.moveDirection.x + enemy.moveDirection.y * enemy.moveDirection.y);
+                        enemy.moveDirection.x /= newDistance;
+                        enemy.moveDirection.y /= newDistance;
+
+                        enemy.moveTimer = 0;
+                    }
+
+                    // Update position
+                    enemy.x += enemy.moveDirection.x * enemy.speed * 1.5;
+                    enemy.y += enemy.moveDirection.y * enemy.speed * 1.5;
+
+                    // Keep blob on screen
+                    if (enemy.x < 0) enemy.x = 0;
+                    if (enemy.x + enemy.width > this.canvas.width) enemy.x = this.canvas.width - enemy.width;
+                    if (enemy.y < 0) enemy.y = 0;
+                    if (enemy.y + enemy.height > this.canvas.height) enemy.y = this.canvas.height - enemy.height;
+
+                    // Update left side timer
+                    enemy.leftSideTimer += deltaTime;
+                    if (enemy.leftSideTimer >= enemy.leftSideDuration) {
+                        enemy.isReturning = true;
+                    }
+                } else {
+                    // Stay on right side
+                    enemy.rightSideTimer += deltaTime;
+                    if (enemy.rightSideTimer >= enemy.rightSideDuration) {
+                        enemy.isMovingToLeft = true;
+                        enemy.rightSideTimer = 0;
+                    }
+
+                    // Move around on right side
+                    if (enemy.moveTimer > enemy.moveInterval) {
+                        // Random movement within right side area
+                        const rightSideArea = this.canvas.width * 0.3; // 30% of screen width
+                        const targetX = this.canvas.width - rightSideArea + Math.random() * rightSideArea;
+                        const targetY = Math.random() * (this.canvas.height - enemy.height);
+
+                        const dx = targetX - enemy.x;
+                        const dy = targetY - enemy.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+
+                        if (distance > 0) {
+                            enemy.moveDirection.x = dx / distance;
+                            enemy.moveDirection.y = dy / distance;
+                        }
+
+                        enemy.moveTimer = 0;
+                    }
+
+                    // Update position
+                    enemy.x += enemy.moveDirection.x * enemy.speed;
+                    enemy.y += enemy.moveDirection.y * enemy.speed;
+
+                    // Keep blob within right side area
+                    const rightSideArea = this.canvas.width * 0.3;
+                    if (enemy.x < this.canvas.width - rightSideArea) enemy.x = this.canvas.width - rightSideArea;
+                    if (enemy.x + enemy.width > this.canvas.width) enemy.x = this.canvas.width - enemy.width;
+                    if (enemy.y < 0) enemy.y = 0;
+                    if (enemy.y + enemy.height > this.canvas.height) enemy.y = this.canvas.height - enemy.height;
+                }
+
+                // Update tentacle animation
+                enemy.tentacleAngle += 0.001;
+                if (!enemy.tentacleLength) enemy.tentacleLength = 20;
+                if (!enemy.tentaclePhase) enemy.tentaclePhase = 0;
+
+                // Update tentacle phase for extension/retraction
+                enemy.tentaclePhase += 0.005;
+                if (enemy.tentaclePhase > Math.PI * 2) enemy.tentaclePhase = 0;
+
+                // Update tentacle wiggle phase
+                if (!enemy.wigglePhase) enemy.wigglePhase = 0;
+                enemy.wigglePhase += 0.01;
+
+                // Blob shooting
+                const currentTime = performance.now();
+                if (currentTime - this.lastBlobShot >= this.blobShootCooldown) {
+                    // Shoot in 8 directions
+                    for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 4) {
+                        const dx = Math.cos(angle);
+                        const dy = Math.sin(angle);
+
+                        this.enemyBullets.push({
+                            x: enemy.x + enemy.width / 2,
+                            y: enemy.y + enemy.height / 2,
+                            width: 15, // Increased from 10 to 15
+                            height: 15, // Increased from 10 to 15
+                            speed: 8,
+                            type: 'blob',
+                            dx: dx,
+                            dy: dy
+                        });
+                    }
+
+                    // Generate blob shot sound
+                    this.generateBlobShotSound();
+
+                    this.lastBlobShot = currentTime;
+                }
+
+                // Check collision with player
+                if (this.checkTentacleCollision(this.player, enemy)) {
+                    this.handleHit();
+                    continue;
                 }
             } else if (enemy.isMoving) {
                 enemy.x -= 3;
@@ -335,23 +502,19 @@ class Game {
                 enemy.x -= this.scrollSpeed;
             }
 
-            // Check collision with player
-            if (this.player.x + this.player.width > enemy.x &&
+            // Check collision with player (only for non-blob enemies)
+            if (!enemy.isBlob && this.player.x + this.player.width > enemy.x &&
                 this.player.x < enemy.x + enemy.width &&
                 this.player.y + this.player.height > enemy.y &&
                 this.player.y < enemy.y + enemy.height) {
 
                 this.handleHit();
-
-                if (enemy.isUFO) {
-                    this.hasUFO = false;
-                }
                 this.enemies.splice(i, 1);
                 continue;
             }
 
-            // Remove enemies that are off screen (only for non-UFO enemies)
-            if (!enemy.isUFO && enemy.x + enemy.width < 0) {
+            // Remove enemies that are off screen (only for non-UFO and non-blob enemies)
+            if (!enemy.isUFO && !enemy.isBlob && enemy.x + enemy.width < 0) {
                 this.enemies.splice(i, 1);
             }
         }
@@ -360,7 +523,7 @@ class Game {
         const currentTime = performance.now();
         if (currentTime - this.lastEnemyShot >= this.enemyShootCooldown) {
             for (const enemy of this.enemies) {
-                if (!enemy.isUFO) {
+                if (!enemy.isUFO && !enemy.isBlob) {
                     this.enemyBullets.push({
                         x: enemy.x,
                         y: enemy.y + enemy.height / 2,
@@ -369,6 +532,9 @@ class Game {
                         speed: 5,
                         type: 'normal'
                     });
+
+                    // Generate enemy shot sound
+                    this.generateEnemyShotSound();
                 }
             }
             this.lastEnemyShot = currentTime;
@@ -467,15 +633,38 @@ class Game {
                             this.hasUFO = false;
                             this.sounds.ufoDeath.currentTime = 0;
                             this.sounds.ufoDeath.play();
+                            // Create grey explosion for UFO
+                            this.createExplosion(
+                                enemy.x + enemy.width / 2,
+                                enemy.y + enemy.height / 2,
+                                true
+                            );
+                            this.explosionTimer = 0; // Reset explosion timer
+                        } else if (enemy.isBlob) {
+                            this.hasBlob = false;
+                            this.sounds.enemyDeath.currentTime = 0;
+                            this.sounds.enemyDeath.play();
+                            this.sounds.explosion.currentTime = 0;
+                            this.sounds.explosion.play();
+                            // Create purple explosion for blob
+                            this.createExplosion(
+                                enemy.x + enemy.width / 2,
+                                enemy.y + enemy.height / 2,
+                                false
+                            );
+                            this.explosionTimer = 0; // Reset explosion timer
                         } else {
                             this.sounds.enemyDeath.currentTime = 0;
                             this.sounds.enemyDeath.play();
                         }
                         this.enemies.splice(j, 1);
-                        this.score += enemy.isUFO ? 50 : 10;
+                        this.score += enemy.isUFO ? 50 : (enemy.isBlob ? 75 : 10);
                     } else if (enemy.isUFO) {
                         this.sounds.ufoHit.currentTime = 0;
                         this.sounds.ufoHit.play();
+                    } else if (enemy.isBlob) {
+                        this.sounds.hit.currentTime = 0;
+                        this.sounds.hit.play();
                     }
                     break;
                 }
@@ -494,6 +683,10 @@ class Game {
 
             if (bullet.type === 'ufo') {
                 // UFO bullets move towards player
+                bullet.x += bullet.dx * bullet.speed;
+                bullet.y += bullet.dy * bullet.speed;
+            } else if (bullet.type === 'blob') {
+                // Blob bullets move in their direction
                 bullet.x += bullet.dx * bullet.speed;
                 bullet.y += bullet.dy * bullet.speed;
             } else {
@@ -527,6 +720,68 @@ class Game {
             bullet.x + bullet.width > enemy.x &&
             bullet.y < enemy.y + enemy.height &&
             bullet.y + bullet.height > enemy.y;
+    }
+
+    // Add new method to check tentacle collision
+    checkTentacleCollision(player, enemy) {
+        if (!enemy.isBlob) return false;
+
+        const tentacleCount = 8;
+        const baseLength = 120;
+        const tentacleWidth = 5;
+
+        for (let i = 0; i < tentacleCount; i++) {
+            const baseAngle = (Math.PI * 2 * i) / tentacleCount + enemy.tentacleAngle;
+            const extension = Math.sin(enemy.tentaclePhase + i * 0.5) * 0.5 + 0.5;
+            const length = baseLength * (0.7 + extension * 0.3);
+
+            const wiggle = Math.sin(enemy.wigglePhase + i * 0.8) * 15;
+            const angle = baseAngle + wiggle * 0.1;
+
+            // Start tentacle from the edge of the blob instead of center
+            const blobRadius = enemy.width / 2;
+            const startX = enemy.x + enemy.width / 2 + Math.cos(angle) * blobRadius;
+            const startY = enemy.y + enemy.height / 2 + Math.sin(angle) * blobRadius;
+
+            // Calculate control points for the curve
+            const midLength = length * 0.5;
+            const controlAngle1 = angle + Math.sin(enemy.wigglePhase + i * 0.8) * 0.3;
+            const controlAngle2 = angle + Math.sin(enemy.wigglePhase + i * 0.8 + 0.5) * 0.3;
+
+            const controlX1 = startX + Math.cos(controlAngle1) * midLength;
+            const controlY1 = startY + Math.sin(controlAngle1) * midLength;
+            const controlX2 = startX + Math.cos(controlAngle2) * midLength * 1.5;
+            const controlY2 = startY + Math.sin(controlAngle2) * midLength * 1.5;
+
+            const endX = startX + Math.cos(angle) * length;
+            const endY = startY + Math.sin(angle) * length;
+
+            // Use different shades of purple for each tentacle
+            const hue = 270 + (i * 5); // Smaller hue variation to stay in purple range
+            const saturation = 85 + (i % 2 * 15); // Slightly higher base saturation
+            const lightness = 35 + (i % 3 * 15); // More contrast in lightness
+            const tentacleColor = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+
+            // Draw tentacle
+            this.ctx.strokeStyle = tentacleColor;
+            this.ctx.lineWidth = tentacleWidth;
+            this.ctx.beginPath();
+            this.ctx.moveTo(startX, startY);
+            this.ctx.bezierCurveTo(controlX1, controlY1, controlX2, controlY2, endX, endY);
+            this.ctx.stroke();
+
+            // Draw tentacle tip with slightly darker shade
+            this.ctx.fillStyle = `hsl(${hue}, ${saturation}%, ${lightness - 15}%)`;
+            this.ctx.beginPath();
+            this.ctx.arc(endX, endY, tentacleWidth / 2, 0, Math.PI * 2);
+            this.ctx.fill();
+        }
+
+        // Check collision with blob body
+        const dx = player.x + player.width / 2 - (enemy.x + enemy.width / 2);
+        const dy = player.y + player.height / 2 - (enemy.y + enemy.height / 2);
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        return distance < (player.width / 2 + enemy.width / 2);
     }
 
     handleHit() {
@@ -575,13 +830,89 @@ class Game {
         const maxHeight = this.canvas.height - gap - minHeight;
         const topHeight = Math.random() * (maxHeight - minHeight) + minHeight;
 
+        // Generate random grey shade for the skyscraper
+        const greyShade = Math.floor(Math.random() * 40) + 20; // Random shade between 20 and 60
+        const baseColor = `rgb(${greyShade}, ${greyShade}, ${greyShade})`;
+
         this.obstacles.push({
             x: this.canvas.width,
             topHeight: topHeight,
             bottomY: topHeight + gap,
             width: 50,
-            passed: false
+            passed: false,
+            baseColor: baseColor,
+            windowPattern: this.generateWindowPattern()
         });
+    }
+
+    generateWindowPattern() {
+        const pattern = [];
+        const rows = 20; // Number of window rows
+        const cols = 3;  // Number of window columns
+
+        for (let row = 0; row < rows; row++) {
+            for (let col = 0; col < cols; col++) {
+                // 70% chance for a window to be present
+                if (Math.random() < 0.7) {
+                    // 30% chance for a lit window
+                    const isLit = Math.random() < 0.3;
+                    pattern.push({
+                        row: row,
+                        col: col,
+                        isLit: isLit
+                    });
+                }
+            }
+        }
+        return pattern;
+    }
+
+    drawObstacles() {
+        for (const obstacle of this.obstacles) {
+            // Draw top skyscraper
+            this.drawSkyscraper(
+                obstacle.x,
+                0,
+                obstacle.width,
+                obstacle.topHeight,
+                obstacle.baseColor,
+                obstacle.windowPattern
+            );
+
+            // Draw bottom skyscraper
+            this.drawSkyscraper(
+                obstacle.x,
+                obstacle.bottomY,
+                obstacle.width,
+                this.canvas.height - obstacle.bottomY,
+                obstacle.baseColor,
+                obstacle.windowPattern
+            );
+        }
+    }
+
+    drawSkyscraper(x, y, width, height, baseColor, windowPattern) {
+        // Draw skyscraper base
+        this.ctx.fillStyle = baseColor;
+        this.ctx.fillRect(x, y, width, height);
+
+        // Draw windows
+        const windowWidth = 8;
+        const windowHeight = 12;
+        const windowSpacing = 4;
+        const startX = x + (width - (windowWidth * 3 + windowSpacing * 2)) / 2;
+        const startY = y + 10;
+
+        for (const window of windowPattern) {
+            const windowX = startX + window.col * (windowWidth + windowSpacing);
+            const windowY = startY + window.row * (windowHeight + windowSpacing);
+
+            // Only draw windows that fit within the skyscraper height
+            if (windowY + windowHeight <= y + height) {
+                this.ctx.fillStyle = window.isLit ? '#ffff00' : '#000000';
+                this.ctx.fillRect(windowX, windowY, windowWidth, windowHeight);
+            }
+        }
     }
 
     updateObstacles(deltaTime) {
@@ -637,7 +968,7 @@ class Game {
         }
     }
 
-    createExplosion(x, y) {
+    createExplosion(x, y, isUFO = false) {
         const particleCount = 30;
         for (let i = 0; i < particleCount; i++) {
             const angle = (Math.PI * 2 * i) / particleCount;
@@ -649,7 +980,9 @@ class Game {
                 vy: Math.sin(angle) * speed,
                 size: 4 + Math.random() * 4,
                 alpha: 1,
-                color: `hsl(${Math.random() * 40 + 100}, 100%, 50%)` // Random green shade (100-140)
+                color: isUFO ?
+                    `hsl(0, 0%, ${Math.random() * 30 + 50}%)` : // Grey shades (50-80%) for UFO
+                    `hsl(${Math.random() * 40 + 270}, 100%, 50%)`   // Purple shades (270-310) for blob
             });
         }
     }
@@ -722,6 +1055,15 @@ class Game {
             this.isInvulnerable = false;
         }
 
+        // Update shield blink effect
+        if (this.isInvulnerable) {
+            this.shieldBlinkTimer = (this.shieldBlinkTimer || 0) + deltaTime;
+            this.shieldBlinkPhase = Math.sin(this.shieldBlinkTimer / 25) * 0.5 + 0.5; // Much faster blink (25ms per cycle)
+        } else {
+            this.shieldBlinkTimer = 0;
+            this.shieldBlinkPhase = 0;
+        }
+
         // Update star field
         this.updateStars();
 
@@ -756,6 +1098,9 @@ class Game {
         this.updatePowerUps(deltaTime);
         this.updateBullets();
         this.checkCollision();
+
+        // Always update explosion particles
+        this.updateExplosion(deltaTime);
     }
 
     draw() {
@@ -936,7 +1281,7 @@ class Game {
             }
 
             if (this.isInvulnerable) {
-                this.ctx.strokeStyle = '#00ffff';
+                this.ctx.strokeStyle = `rgba(0, 255, 255, ${this.shieldBlinkPhase})`;
                 this.ctx.lineWidth = 2;
                 this.ctx.beginPath();
                 this.ctx.arc(
@@ -1066,7 +1411,7 @@ class Game {
         for (const enemy of this.enemies) {
             if (enemy.isUFO) {
                 // Draw UFO
-                this.ctx.fillStyle = '#800080'; // Purple color for UFO
+                this.ctx.fillStyle = '#808080'; // Grey color for UFO
                 this.ctx.beginPath();
                 this.ctx.arc(
                     enemy.x + enemy.width / 2,
@@ -1078,8 +1423,8 @@ class Game {
                 this.ctx.fill();
 
                 // Draw UFO details
-                this.ctx.strokeStyle = '#ffffff';
-                this.ctx.lineWidth = 2;
+                this.ctx.strokeStyle = '#ffff00'; // Yellow outline
+                this.ctx.lineWidth = 3; // Thicker line for better visibility
                 this.ctx.beginPath();
                 this.ctx.arc(
                     enemy.x + enemy.width / 2,
@@ -1106,6 +1451,135 @@ class Game {
                     healthBarX,
                     healthBarY,
                     (healthBarWidth * enemy.health) / 5,
+                    healthBarHeight
+                );
+            } else if (enemy.isBlob) {
+                // Draw blob body
+                this.ctx.fillStyle = '#800080'; // Purple color for blob
+                this.ctx.beginPath();
+                this.ctx.arc(
+                    enemy.x + enemy.width / 2,
+                    enemy.y + enemy.height / 2,
+                    enemy.width / 2,
+                    0,
+                    Math.PI * 2
+                );
+                this.ctx.fill();
+
+                // Draw evil eye
+                const eyeX = enemy.x + enemy.width / 2;
+                const eyeY = enemy.y + enemy.height / 2;
+                const eyeSize = enemy.width * 0.4; // 40% of blob size
+
+                // Draw eye glow
+                this.ctx.shadowColor = 'rgba(255, 0, 0, 0.8)';
+                this.ctx.shadowBlur = 15;
+
+                // Draw eye white
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.beginPath();
+                this.ctx.arc(eyeX, eyeY, eyeSize, 0, Math.PI * 2);
+                this.ctx.fill();
+
+                // Draw eye iris
+                this.ctx.fillStyle = '#ff0000';
+                this.ctx.beginPath();
+                this.ctx.arc(eyeX, eyeY, eyeSize * 0.7, 0, Math.PI * 2);
+                this.ctx.fill();
+
+                // Draw eye pupil
+                this.ctx.fillStyle = '#000000';
+                this.ctx.beginPath();
+                this.ctx.arc(eyeX, eyeY, eyeSize * 0.4, 0, Math.PI * 2);
+                this.ctx.fill();
+
+                // Draw eye shine
+                this.ctx.fillStyle = '#ffffff';
+                this.ctx.beginPath();
+                this.ctx.arc(
+                    eyeX - eyeSize * 0.2,
+                    eyeY - eyeSize * 0.2,
+                    eyeSize * 0.1,
+                    0,
+                    Math.PI * 2
+                );
+                this.ctx.fill();
+
+                // Reset shadow
+                this.ctx.shadowBlur = 0;
+
+                // Draw tentacles
+                const tentacleCount = 8;
+                const baseLength = 120;
+                const wiggleAmount = 15;
+                const tentacleWidth = 5;
+
+                for (let i = 0; i < tentacleCount; i++) {
+                    const baseAngle = (Math.PI * 2 * i) / tentacleCount + enemy.tentacleAngle;
+
+                    // Calculate extension/retraction
+                    const extension = Math.sin(enemy.tentaclePhase + i * 0.5) * 0.5 + 0.5;
+                    const length = baseLength * (0.7 + extension * 0.3);
+
+                    // Calculate wiggle
+                    const wiggle = Math.sin(enemy.wigglePhase + i * 0.8) * wiggleAmount;
+                    const angle = baseAngle + wiggle * 0.1;
+
+                    // Start tentacle from the edge of the blob instead of center
+                    const blobRadius = enemy.width / 2;
+                    const startX = enemy.x + enemy.width / 2 + Math.cos(angle) * blobRadius;
+                    const startY = enemy.y + enemy.height / 2 + Math.sin(angle) * blobRadius;
+
+                    // Calculate control points for the curve
+                    const midLength = length * 0.5;
+                    const controlAngle1 = angle + Math.sin(enemy.wigglePhase + i * 0.8) * 0.3;
+                    const controlAngle2 = angle + Math.sin(enemy.wigglePhase + i * 0.8 + 0.5) * 0.3;
+
+                    const controlX1 = startX + Math.cos(controlAngle1) * midLength;
+                    const controlY1 = startY + Math.sin(controlAngle1) * midLength;
+                    const controlX2 = startX + Math.cos(controlAngle2) * midLength * 1.5;
+                    const controlY2 = startY + Math.sin(controlAngle2) * midLength * 1.5;
+
+                    const endX = startX + Math.cos(angle) * length;
+                    const endY = startY + Math.sin(angle) * length;
+
+                    // Use different shades of purple for each tentacle
+                    const hue = 270 + (i * 5); // Smaller hue variation to stay in purple range
+                    const saturation = 85 + (i % 2 * 15); // Slightly higher base saturation
+                    const lightness = 35 + (i % 3 * 15); // More contrast in lightness
+                    const tentacleColor = `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+
+                    // Draw tentacle
+                    this.ctx.strokeStyle = tentacleColor;
+                    this.ctx.lineWidth = tentacleWidth;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(startX, startY);
+                    this.ctx.bezierCurveTo(controlX1, controlY1, controlX2, controlY2, endX, endY);
+                    this.ctx.stroke();
+
+                    // Draw tentacle tip with slightly darker shade
+                    this.ctx.fillStyle = `hsl(${hue}, ${saturation}%, ${lightness - 15}%)`;
+                    this.ctx.beginPath();
+                    this.ctx.arc(endX, endY, tentacleWidth / 2, 0, Math.PI * 2);
+                    this.ctx.fill();
+                }
+
+                // Draw health bars
+                const healthBarWidth = enemy.width;
+                const healthBarHeight = 4;
+                const healthBarX = enemy.x;
+                const healthBarY = enemy.y - 10;
+
+                // Background
+                this.ctx.fillStyle = '#333333';
+                this.ctx.fillRect(healthBarX, healthBarY, healthBarWidth, healthBarHeight);
+
+                // Health
+                this.ctx.fillStyle = '#00ff00';
+                this.ctx.fillRect(
+                    healthBarX,
+                    healthBarY,
+                    (healthBarWidth * enemy.health) / 8,
                     healthBarHeight
                 );
             } else {
@@ -1212,6 +1686,22 @@ class Game {
                     Math.PI * 2
                 );
                 this.ctx.fill();
+            } else if (bullet.type === 'blob') {
+                // Draw glow effect for blob bullets
+                this.ctx.shadowColor = 'rgba(255, 0, 255, 0.8)';
+                this.ctx.shadowBlur = 15;
+                this.ctx.fillStyle = '#ff00ff'; // Bright magenta
+                this.ctx.beginPath();
+                this.ctx.arc(
+                    bullet.x,
+                    bullet.y,
+                    bullet.width / 2,
+                    0,
+                    Math.PI * 2
+                );
+                this.ctx.fill();
+                // Reset shadow
+                this.ctx.shadowBlur = 0;
             } else {
                 this.ctx.fillStyle = '#ff00ff';
                 this.ctx.fillRect(bullet.x, bullet.y, bullet.width, bullet.height);
@@ -1219,22 +1709,7 @@ class Game {
         }
 
         // Draw obstacles
-        this.ctx.fillStyle = '#ff4444';
-        for (const obstacle of this.obstacles) {
-            this.ctx.fillRect(
-                obstacle.x,
-                0,
-                obstacle.width,
-                obstacle.topHeight
-            );
-
-            this.ctx.fillRect(
-                obstacle.x,
-                obstacle.bottomY,
-                obstacle.width,
-                this.canvas.height - obstacle.bottomY
-            );
-        }
+        this.drawObstacles();
 
         // Draw charge meter if using charge gun
         if (this.player.weapon.type === 'chargeGun') {
@@ -1296,6 +1771,8 @@ class Game {
         this.explosionParticles = [];
         this.explosionTimer = 0;
         this.scrollSpeed = 2;
+        this.hasUFO = false; // Reset UFO state on restart
+        this.hasBlob = false; // Reset blob state on restart
 
         // Reset star field
         this.stars = {
@@ -1345,6 +1822,103 @@ class Game {
                 }
             }
         }
+    }
+
+    // Add new method to initialize audio context
+    initializeAudioContext() {
+        if (!this.audioContext) {
+            this.audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        }
+    }
+
+    // Modify generateEnemyShotSound to check for audio context
+    generateEnemyShotSound() {
+        if (!this.audioContext) return;
+
+        const oscillator = this.audioContext.createOscillator();
+        const gainNode = this.audioContext.createGain();
+
+        // Start with higher frequency and sweep down
+        const startFreq = 800;
+        const endFreq = 200;
+        const duration = 0.05; // Shorter duration for zip effect
+
+        oscillator.type = 'sawtooth';
+        oscillator.frequency.setValueAtTime(startFreq, this.audioContext.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(endFreq, this.audioContext.currentTime + duration);
+
+        // Quick attack and decay with reduced volume
+        gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
+        gainNode.gain.linearRampToValueAtTime(0.1, this.audioContext.currentTime + 0.001);
+        gainNode.gain.linearRampToValueAtTime(0, this.audioContext.currentTime + duration);
+
+        // Connect nodes
+        oscillator.connect(gainNode);
+        gainNode.connect(this.audioContext.destination);
+
+        // Start and stop the sound
+        oscillator.start();
+        oscillator.stop(this.audioContext.currentTime + duration);
+    }
+
+    // Modify generateUFOShotSound to check for audio context
+    generateUFOShotSound() {
+        if (!this.audioContext) return;
+
+        const oscillator = this.audioContext.createOscillator();
+        const gainNode = this.audioContext.createGain();
+
+        // More dramatic frequency sweep for UFO
+        const startFreq = 1200;
+        const endFreq = 300;
+        const duration = 0.08; // Slightly longer for UFO
+
+        oscillator.type = 'square';
+        oscillator.frequency.setValueAtTime(startFreq, this.audioContext.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(endFreq, this.audioContext.currentTime + duration);
+
+        // Quick attack and decay with reduced volume
+        gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
+        gainNode.gain.linearRampToValueAtTime(0.075, this.audioContext.currentTime + 0.001);
+        gainNode.gain.linearRampToValueAtTime(0, this.audioContext.currentTime + duration);
+
+        // Connect nodes
+        oscillator.connect(gainNode);
+        gainNode.connect(this.audioContext.destination);
+
+        // Start and stop the sound
+        oscillator.start();
+        oscillator.stop(this.audioContext.currentTime + duration);
+    }
+
+    // Add new method to generate blob shot sound
+    generateBlobShotSound() {
+        if (!this.audioContext) return;
+
+        const oscillator = this.audioContext.createOscillator();
+        const gainNode = this.audioContext.createGain();
+
+        // More dramatic frequency sweep for blob
+        const startFreq = 1500;
+        const endFreq = 200;
+        const duration = 0.1; // Longer for blob
+
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(startFreq, this.audioContext.currentTime);
+        oscillator.frequency.exponentialRampToValueAtTime(endFreq, this.audioContext.currentTime + duration);
+
+        // Quick attack and decay with reduced volume
+        gainNode.gain.setValueAtTime(0, this.audioContext.currentTime);
+        gainNode.gain.linearRampToValueAtTime(0.1, this.audioContext.currentTime + 0.001);
+        gainNode.gain.linearRampToValueAtTime(0, this.audioContext.currentTime + duration);
+
+        // Connect nodes
+        oscillator.connect(gainNode);
+        gainNode.connect(this.audioContext.destination);
+
+        // Start and stop the sound
+        oscillator.start();
+        oscillator.stop(this.audioContext.currentTime + duration);
     }
 }
 
