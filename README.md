@@ -1,50 +1,99 @@
-# Space Frog
+# Space Frog 🐸
 
-A space-themed Flappy Bird-style game where you control a frog navigating through space obstacles and fighting enemies.
+A space-themed side-scrolling game inspired by Flappy Bird, built with HTML5 Canvas and JavaScript.
 
-## How to Play
+## Game Description
 
-1. Open `index.html` in a modern web browser
-2. Press SPACE or click to make the frog jump
-3. Press X to shoot at enemies
-4. Navigate through the gaps between obstacles
-5. Destroy enemies to earn points
-6. Try to achieve the highest score possible!
-
-## Controls
-
-- SPACE or Mouse Click: Jump
-- X: Shoot
-- The game automatically restarts when you hit an obstacle or get hit by enemy fire
+Space Frog is an engaging arcade-style game where you control a frog navigating through space. Dodge obstacles, defeat enemies, and collect power-ups while trying to achieve the highest score possible.
 
 ## Features
 
-- Smooth gameplay with physics-based movement
-- Shooting mechanics
-- Enemy spaceships that shoot back
-- Score tracking
-- Responsive design
-- Game over screen with restart option
+- **Dynamic Gameplay**: Navigate through space while avoiding obstacles and enemies
+- **Multiple Enemy Types**:
+  - Regular enemies
+  - UFOs with unique movement patterns
+  - Rare Tentacle Blob boss with dynamic tentacle attacks
+- **Power-up System**:
+  - Shield power-ups for protection
+  - Fast Laser weapon upgrade
+  - Charge Gun with powerful area attacks
+- **Visual Effects**:
+  - Parallax star field background
+  - Explosion animations
+  - Dynamic shield effects
+  - Glowing projectiles
+- **Sound Effects**:
+  - Weapon sounds
+  - Enemy sounds
+  - Power-up sounds
+  - Explosion sounds
+
+## Controls
+
+- **Space** or **Click**: Jump
+- **X Key**: Shoot
+  - Hold for continuous shooting
+  - For Charge Gun: Hold to charge, release to fire
+
+## Power-ups
+
+- **S (Shield)**: Provides temporary invulnerability and restores one shield
+- **L (Laser)**: Upgrades to a rapid-fire laser weapon
+- **C (Charge)**: Provides a powerful charge gun that fires in multiple directions
+
+## Enemies
+
+1. **Regular Enemies**:
+   - Basic movement patterns
+   - Some move randomly
+   - Others follow a straight path
+
+2. **UFOs**:
+   - Appear rarely
+   - Move in unpredictable patterns
+   - Shoot projectiles at the player
+   - Have multiple health points
+
+3. **Tentacle Blob**:
+   - Rare boss enemy
+   - Features dynamic tentacle attacks
+   - Moves between left and right sides of the screen
+   - Shoots projectiles in multiple directions
+   - Has the highest health of all enemies
 
 ## Scoring
 
-- +1 point for passing through obstacles
-- +10 points for destroying enemies
+- Regular enemies: 10 points
+- UFOs: 50 points
+- Tentacle Blob: 75 points
+- Passing obstacles: 1 point each
+
+## Running the Game
+
+1. Clone the repository
+2. Open `index.html` in a modern web browser
+3. Click or press Space to start playing
 
 ## Technical Details
 
-The game is built using:
-- HTML5 Canvas for rendering
-- Modern JavaScript (ES6+)
-- CSS3 for styling
+- Built with vanilla JavaScript
+- Uses HTML5 Canvas for rendering
+- Implements Web Audio API for sound effects
+- No external dependencies required
 
-## Development
+## Browser Support
 
-To modify the game:
-1. Edit `game.js` to change game mechanics
-2. Modify `styles.css` for visual changes
-3. Update `index.html` for structural changes
+The game works best in modern browsers that support:
+- HTML5 Canvas
+- Web Audio API
+- ES6+ JavaScript features
+
+## Credits
+
+- Game developed by [Your Name]
+- Sound effects from [Source]
+- Inspired by Flappy Bird
 
 ## License
 
-MIT License - Feel free to use and modify as you wish!
+This project is licensed under the MIT License - see the LICENSE file for details.
